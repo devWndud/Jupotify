@@ -415,10 +415,34 @@ def download():
             logging.warning(f"{config_name} download failed: {str(e)}")
             continue
     
-    # 모든 다운로드 방법이 실패한 경우
-    logging.error(f"All download methods failed for {url}")
+    # 모든 다운로드 방법이 실패한 경우, 직접 추출 시도
+    logging.info("All yt-dlp methods failed, trying direct extraction")
+    try:
+        direct_result = extract_video_info_direct(url)
+        logging.info(f"Direct extraction result: {direct_result}")
+        
+        if direct_result.get("success"):
+            # 오디오 URL도 시도
+            audio_url = extract_audio_url_direct(url)
+            logging.info(f"Audio URL extracted: {audio_url}")
+            
+            return jsonify({
+                "audio_url": audio_url,
+                "title": direct_result.get("title", "Unknown"),
+                "author": direct_result.get("author", "Unknown"),
+                "thumbnail_url": direct_result.get("thumbnail", ""),
+                "duration": direct_result.get("duration", 0),
+                "method": "direct_extraction"
+            }), 200
+        else:
+            logging.warning(f"Direct extraction failed: {direct_result.get('error')}")
+    except Exception as e:
+        logging.error(f"Direct extraction error: {e}")
+        import traceback
+        logging.error(f"Traceback: {traceback.format_exc()}")
     
-    # 대체 방법: 비디오 ID 추출 후 정보만 가져오기
+    # 직접 추출도 실패한 경우, 대체 방법으로 정보만 제공
+    logging.info("Direct extraction failed, trying alternative method")
     try:
         video_id = extract_video_id(url)
         if not video_id:
