@@ -92,6 +92,38 @@ def health_check():
         'version': '1.0.0'
     }), 200
 
+# 네트워크 테스트 엔드포인트
+@app.route('/test-network')
+def test_network():
+    import socket
+    import requests
+    
+    results = {
+        'dns_resolution': {},
+        'youtube_access': {},
+        'timestamp': datetime.now().isoformat()
+    }
+    
+    # DNS 해결 테스트
+    test_domains = ['www.youtube.com', 'youtube.com', 'www.google.com']
+    for domain in test_domains:
+        try:
+            ip = socket.gethostbyname(domain)
+            results['dns_resolution'][domain] = {'status': 'success', 'ip': ip}
+        except socket.gaierror as e:
+            results['dns_resolution'][domain] = {'status': 'failed', 'error': str(e)}
+    
+    # YouTube 접근 테스트
+    test_urls = ['https://www.youtube.com', 'https://www.google.com']
+    for url in test_urls:
+        try:
+            response = requests.get(url, timeout=10)
+            results['youtube_access'][url] = {'status': 'success', 'code': response.status_code}
+        except requests.exceptions.RequestException as e:
+            results['youtube_access'][url] = {'status': 'failed', 'error': str(e)}
+    
+    return jsonify(results), 200
+
 # 고급 YouTube 설정
 YDL_OPTS = {
     "quiet": True,
@@ -129,9 +161,9 @@ YDL_OPTS = {
     "sleep_interval_requests": 1,
     "extractor_args": {
         "youtube": {
-            "player_client": ["android_music", "android_creator", "android", "web"],
+            "player_client": ["web"],
             "player_skip": ["webpage"],
-            "innertube_host": "music.youtube.com",
+            "innertube_host": "www.youtube.com",
             "innertube_key": "AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30",
             "skip": ["dash", "hls"],
             "lang": ["ko", "en"],
@@ -143,7 +175,7 @@ YDL_OPTS = {
     "verbose": False,
 }
 
-# 대체 설정 (더 공격적인 우회)
+# 대체 설정 (더 간단한 설정)
 YDL_OPTS_AGGRESSIVE = {
     "quiet": True,
     "skip_download": True,
@@ -152,31 +184,25 @@ YDL_OPTS_AGGRESSIVE = {
     "extract_flat": False,
     "forcejson": True,
     "noplaylist": True,
-    "source_address": "0.0.0.0",
     "http_headers": {
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-        "Accept": "*/*",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
         "Accept-Encoding": "gzip, deflate, br",
         "Connection": "keep-alive",
-        "Sec-Fetch-Dest": "empty",
-        "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Site": "same-origin",
     },
     "format": "bestaudio[ext=m4a]/bestaudio/best",
-    "extractor_retries": 2,
-    "fragment_retries": 2,
-    "retries": 2,
-    "sleep_interval": 0.5,
-    "max_sleep_interval": 2,
+    "extractor_retries": 1,
+    "fragment_retries": 1,
+    "retries": 1,
+    "sleep_interval": 2,
+    "max_sleep_interval": 5,
     "extractor_args": {
         "youtube": {
-            "player_client": ["ios", "android_music", "android_creator"],
+            "player_client": ["web"],
             "player_skip": ["webpage"],
-            "innertube_host": "music.youtube.com",
+            "innertube_host": "www.youtube.com",
             "innertube_key": "AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30",
-            "skip": ["dash", "hls"],
-            "lang": ["ko", "en"],
         }
     },
     "no_check_certificate": True,
@@ -203,8 +229,8 @@ def extract():
 
     # 다중 시도 로직 (차단 우회 방법 포함)
     configs = [
+        ("aggressive", YDL_OPTS_AGGRESSIVE),  # 간단한 설정 먼저 시도
         ("standard", YDL_OPTS),
-        ("aggressive", YDL_OPTS_AGGRESSIVE),
         ("proxy", YDL_OPTS_PROXY),
         ("cookie", YDL_OPTS_COOKIE),
         ("proxy_cookie", YDL_OPTS_PROXY_COOKIE),
