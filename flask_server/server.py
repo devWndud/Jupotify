@@ -276,9 +276,12 @@ def extract():
     logging.info("All yt-dlp methods failed, trying direct extraction")
     try:
         direct_result = extract_video_info_direct(url)
+        logging.info(f"Direct extraction result: {direct_result}")
+        
         if direct_result.get("success"):
             # 오디오 URL도 시도
             audio_url = extract_audio_url_direct(url)
+            logging.info(f"Audio URL extracted: {audio_url}")
             
             return jsonify({
                 "audio_url": audio_url,
@@ -292,6 +295,8 @@ def extract():
             logging.warning(f"Direct extraction failed: {direct_result.get('error')}")
     except Exception as e:
         logging.error(f"Direct extraction error: {e}")
+        import traceback
+        logging.error(f"Traceback: {traceback.format_exc()}")
     
     # 모든 방법이 실패한 경우
     logging.error(f"All extraction methods failed for {url}")
