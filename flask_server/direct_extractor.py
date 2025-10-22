@@ -47,12 +47,23 @@ class DirectYouTubeExtractor:
             # 페이지에서 JSON 데이터 추출
             content = response.text
             
-            # ytInitialPlayerResponse 패턴 찾기
-            pattern = r'var ytInitialPlayerResponse = ({.*?});'
-            match = re.search(pattern, content)
+            # 다양한 패턴으로 YouTube 데이터 찾기
+            patterns = [
+                r'var ytInitialPlayerResponse = ({.*?});',
+                r'ytInitialPlayerResponse\s*=\s*({.*?});',
+                r'window\["ytInitialPlayerResponse"\]\s*=\s*({.*?});',
+                r'"ytInitialPlayerResponse":\s*({.*?})',
+            ]
+            
+            match = None
+            for pattern in patterns:
+                match = re.search(pattern, content, re.DOTALL)
+                if match:
+                    break
             
             if not match:
-                return {"success": False, "error": "ytInitialPlayerResponse not found"}
+                # 대체 방법: 페이지에서 기본 정보 추출
+                return self._extract_basic_info(content, video_id)
             
             try:
                 player_data = json.loads(match.group(1))
@@ -86,6 +97,54 @@ class DirectYouTubeExtractor:
             return {"success": False, "error": f"Request error: {str(e)}"}
         except Exception as e:
             return {"success": False, "error": f"Unexpected error: {str(e)}"}
+    
+    def _extract_basic_info(self, content: str, video_id: str) -> Dict:
+        """페이지에서 기본 정보 추출 (ytInitialPlayerResponse 없이)"""
+        try:
+            # 제목 추출
+            title_patterns = [
+                r'<title>([^<]+)</title>',
+                r'"title":"([^"]+)"',
+                r'<meta property="og:title" content="([^"]+)"',
+            ]
+            
+            title = "Unknown"
+            for pattern in title_patterns:
+                match = re.search(pattern, content)
+                if match:
+                    title = match.group(1).strip()
+                    if title and title != "YouTube":
+                        break
+            
+            # 채널명 추출
+            author_patterns = [
+                r'"author":"([^"]+)"',
+                r'<meta property="og:video:author" content="([^"]+)"',
+                r'"channelName":"([^"]+)"',
+            ]
+            
+            author = "Unknown"
+            for pattern in author_patterns:
+                match = re.search(pattern, content)
+                if match:
+                    author = match.group(1).strip()
+                    if author:
+                        break
+            
+            # 썸네일 URL
+            thumbnail = f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
+            
+            return {
+                "success": True,
+                "title": title,
+                "author": author,
+                "duration": 0,  # 기본 정보에서는 재생시간 추출 어려움
+                "thumbnail": thumbnail,
+                "video_id": video_id
+            }
+            
+        except Exception as e:
+            return {"success": False, "error": f"Basic info extraction error: {str(e)}"}
     
     def extract_audio_url(self, video_id: str) -> Optional[str]:
         """오디오 URL 추출 (간단한 방법)"""
