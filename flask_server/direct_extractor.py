@@ -101,34 +101,42 @@ class DirectYouTubeExtractor:
     def _extract_basic_info(self, content: str, video_id: str) -> Dict:
         """페이지에서 기본 정보 추출 (ytInitialPlayerResponse 없이)"""
         try:
-            # 제목 추출
+            # 제목 추출 (더 많은 패턴)
             title_patterns = [
                 r'<title>([^<]+)</title>',
                 r'"title":"([^"]+)"',
                 r'<meta property="og:title" content="([^"]+)"',
+                r'"videoDetails":\s*{[^}]*"title":"([^"]+)"',
+                r'"name":"([^"]+)"',
+                r'<h1[^>]*>([^<]+)</h1>',
             ]
             
             title = "Unknown"
             for pattern in title_patterns:
-                match = re.search(pattern, content)
+                match = re.search(pattern, content, re.IGNORECASE)
                 if match:
                     title = match.group(1).strip()
-                    if title and title != "YouTube":
+                    # YouTube 기본 제목 제외
+                    if title and title not in ["YouTube", "Watch YouTube videos", "Video"]:
                         break
             
-            # 채널명 추출
+            # 채널명 추출 (더 많은 패턴)
             author_patterns = [
                 r'"author":"([^"]+)"',
                 r'<meta property="og:video:author" content="([^"]+)"',
                 r'"channelName":"([^"]+)"',
+                r'"uploader":"([^"]+)"',
+                r'"ownerChannelName":"([^"]+)"',
+                r'"channelTitle":"([^"]+)"',
+                r'<link[^>]*rel="canonical"[^>]*href="[^"]*/([^/]+)/[^"]*"',
             ]
             
             author = "Unknown"
             for pattern in author_patterns:
-                match = re.search(pattern, content)
+                match = re.search(pattern, content, re.IGNORECASE)
                 if match:
                     author = match.group(1).strip()
-                    if author:
+                    if author and author not in ["YouTube", "Channel"]:
                         break
             
             # 썸네일 URL
