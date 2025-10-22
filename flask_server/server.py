@@ -15,6 +15,7 @@ import time
 from alternative_downloader import get_video_info_alternative, extract_video_id
 from proxy_support import get_proxy_ytdl_opts
 from cookie_support import get_cookie_ytdl_opts
+from direct_extractor import extract_video_info_direct, extract_audio_url_direct
 
 app = Flask(__name__)
 
@@ -124,7 +125,7 @@ def test_network():
     
     return jsonify(results), 200
 
-# 고급 YouTube 설정
+# 최소한의 YouTube 설정 (DNS 문제 해결)
 YDL_OPTS = {
     "quiet": True,
     "skip_download": True,
@@ -133,43 +134,25 @@ YDL_OPTS = {
     "extract_flat": False,
     "forcejson": True,
     "noplaylist": True,
-    "source_address": "0.0.0.0",
     "http_headers": {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-        "Accept-Language": "en-US,en;q=0.9,ko;q=0.8",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
         "Accept-Encoding": "gzip, deflate, br",
-        "DNT": "1",
         "Connection": "keep-alive",
-        "Upgrade-Insecure-Requests": "1",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
-        "Sec-Fetch-User": "?1",
-        "Cache-Control": "max-age=0",
-        "Sec-Ch-Ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-        "Sec-Ch-Ua-Mobile": "?0",
-        "Sec-Ch-Ua-Platform": '"Windows"',
     },
     "format": "bestaudio[ext=m4a]/bestaudio/best",
-    "extractor_retries": 3,
-    "fragment_retries": 3,
-    "retries": 3,
-    "sleep_interval": 1,
-    "max_sleep_interval": 5,
-    "sleep_interval_subtitles": 1,
-    "sleep_interval_requests": 1,
+    "extractor_retries": 1,
+    "fragment_retries": 1,
+    "retries": 1,
+    "sleep_interval": 3,
+    "max_sleep_interval": 10,
     "extractor_args": {
         "youtube": {
             "player_client": ["web"],
             "player_skip": ["webpage"],
-            "innertube_host": "www.youtube.com",
-            "innertube_key": "AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30",
-            "skip": ["dash", "hls"],
-            "lang": ["ko", "en"],
         }
     },
-    "cookiesfrombrowser": None,  # 쿠키 사용 안함
     "no_check_certificate": True,
     "prefer_insecure": True,
     "verbose": False,
@@ -227,10 +210,10 @@ def extract():
     if not url:
         return jsonify({"error": "missing url"}), 400
 
-    # 다중 시도 로직 (차단 우회 방법 포함)
+    # 다중 시도 로직 (DNS 문제 해결 우선)
     configs = [
-        ("aggressive", YDL_OPTS_AGGRESSIVE),  # 간단한 설정 먼저 시도
-        ("standard", YDL_OPTS),
+        ("minimal", YDL_OPTS),  # 최소한의 설정 먼저 시도
+        ("aggressive", YDL_OPTS_AGGRESSIVE),
         ("proxy", YDL_OPTS_PROXY),
         ("cookie", YDL_OPTS_COOKIE),
         ("proxy_cookie", YDL_OPTS_PROXY_COOKIE),
@@ -289,7 +272,28 @@ def extract():
             logging.warning(f"{config_name} configuration failed: {str(e)}")
             continue
     
-    # 모든 설정이 실패한 경우
+    # 모든 yt-dlp 방법이 실패한 경우, 직접 추출 시도
+    logging.info("All yt-dlp methods failed, trying direct extraction")
+    try:
+        direct_result = extract_video_info_direct(url)
+        if direct_result.get("success"):
+            # 오디오 URL도 시도
+            audio_url = extract_audio_url_direct(url)
+            
+            return jsonify({
+                "audio_url": audio_url,
+                "title": direct_result.get("title", "Unknown"),
+                "author": direct_result.get("author", "Unknown"),
+                "thumbnail_url": direct_result.get("thumbnail", ""),
+                "duration": direct_result.get("duration", 0),
+                "method": "direct_extraction"
+            }), 200
+        else:
+            logging.warning(f"Direct extraction failed: {direct_result.get('error')}")
+    except Exception as e:
+        logging.error(f"Direct extraction error: {e}")
+    
+    # 모든 방법이 실패한 경우
     logging.error(f"All extraction methods failed for {url}")
     return jsonify({
         "error": f"모든 추출 방법 실패: {str(last_error)}",
