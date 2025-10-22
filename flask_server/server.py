@@ -16,6 +16,7 @@ from alternative_downloader import get_video_info_alternative, extract_video_id
 from proxy_support import get_proxy_ytdl_opts
 from cookie_support import get_cookie_ytdl_opts
 from direct_extractor import extract_video_info_direct, extract_audio_url_direct
+from audio_downloader import download_audio_file
 
 app = Flask(__name__)
 
@@ -279,7 +280,33 @@ def extract():
         logging.info(f"Direct extraction result: {direct_result}")
         
         if direct_result.get("success"):
-            # 오디오 URL도 시도
+            # 실제 오디오 파일 다운로드 시도
+            logging.info("Attempting actual audio file download")
+            try:
+                download_result = download_audio_file(url, DOWNLOAD_DIR)
+                if download_result:
+                    filepath, filename = download_result
+                    logging.info(f"Audio file downloaded: {filename}")
+                    
+                    # 파일 URL 생성
+                    base_url = request.host_url.rstrip('/')
+                    file_url = f"{base_url}/files/{filename}"
+                    
+                    return jsonify({
+                        "file_url": file_url,
+                        "title": direct_result.get("title", "Unknown"),
+                        "author": direct_result.get("author", "Unknown"),
+                        "thumbnail_url": direct_result.get("thumbnail", ""),
+                        "duration": direct_result.get("duration", 0),
+                        "method": "direct_download",
+                        "filename": filename
+                    }), 200
+                else:
+                    logging.warning("Audio file download failed")
+            except Exception as e:
+                logging.error(f"Audio download error: {e}")
+            
+            # 파일 다운로드 실패 시 정보만 제공
             audio_url = extract_audio_url_direct(url)
             logging.info(f"Audio URL extracted: {audio_url}")
             
