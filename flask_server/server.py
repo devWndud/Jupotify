@@ -79,7 +79,7 @@ def security_check():
                 abort(403, description="IP blocked due to suspicious activity")
     
     # 허용된 엔드포인트만 접근 허용
-    allowed_endpoints = ['/extract', '/download', '/files/', '/delete', '/version', '/health']
+    allowed_endpoints = ['/extract', '/download', '/files/', '/delete', '/version', '/health', '/test-network']
     if not any(request.path.startswith(endpoint) for endpoint in allowed_endpoints):
         logging.info(f"Access to non-allowed endpoint: {request.path} from {client_ip}")
         abort(404)
