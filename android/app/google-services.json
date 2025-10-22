@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "740393754509",
+    "project_id": "jupotify",
+    "storage_bucket": "jupotify.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:740393754509:android:1820546d782994b0dfa7c4",
+        "android_client_info": {
+          "package_name": "com.example.jupotify"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCusmXoUEY-QcYLqCpzyfJ89UPfVzBlwoA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  jupotify-server:
+    build: .
+    container_name: jupotify-secure-server
+    ports:
+      - "8080:8080"
+    environment:
+      - FLASK_ENV=production
+      - FLASK_DEBUG=False
+      - RATELIMIT_STORAGE_URL=memory://
+      - BLOCK_THRESHOLD=10
+      - BLOCK_DURATION=3600
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./downloads:/app/downloads
+      - ./logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - jupotify-network
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/tmp
+
+  nginx:
+    image: nginx:alpine
+    container_name: jupotify-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+      - ./logs/nginx:/var/log/nginx
+    depends_on:
+      - jupotify-server
+    restart: unless-stopped
+    networks:
+      - jupotify-network
+
+  security-monitor:
+    build: .
+    container_name: jupotify-security-monitor
+    command: python security_monitor.py
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      - jupotify-server
+    restart: unless-stopped
+    networks:
+      - jupotify-network
+
+networks:
+  jupotify-network:
+    driver: bridge
