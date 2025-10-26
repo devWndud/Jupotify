@@ -206,8 +206,11 @@ def _run_with_yt_dlp_module(url: str, outdir: str, quality: str = "192"):
         'noplaylist': False,  # 플레이리스트면 여러개 받을 수 있음
         'quiet': False,
         'no_warnings': True,
-        'retries': 3,
+        'retries': 10,  # 재시도 횟수 증가
+        'fragment_retries': 10,
+        'extractor_retries': 3,
         'continuedl': True,
+        'ignoreerrors': False,  # 에러 시 플레이리스트 계속 진행
         'ffmpeg_location': None,  # 필요 시 절대경로 지정
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
@@ -220,9 +223,12 @@ def _run_with_yt_dlp_module(url: str, outdir: str, quality: str = "192"):
     with YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
         # info가 playlist인 경우엔 여러 항목 처리됨
+        # 플레이리스트의 경우 전체 정보를 반환해야 모든 항목이 다운로드됨
+        # 단일 비디오인 경우에만 첫 번째 항목 반환
         if isinstance(info, dict) and "entries" in info and info["entries"]:
-            # 플레이리스트인 경우 첫 번째 항목 반환
-            info = info["entries"][0]
+            # 플레이리스트 전체 정보를 반환 (모든 항목 다운로드됨)
+            # 마지막에 다운로드된 항목의 정보를 추출
+            return info["entries"][-1] if len(info["entries"]) > 0 else info
         return info
 
 
@@ -473,78 +479,78 @@ def download():
             # 방법 3: 기존 방식으로 폴백
             try:
                 logging.info("→ 기존 방식으로 폴백합니다...")
-                ydl_opts = {
-                    "format": "bestaudio[ext=m4a]/bestaudio/best",
-                    "outtmpl": os.path.join(DOWNLOAD_DIR, "%(title).80s-%(id)s.%(ext)s"),
-                    "noplaylist": True,
-                    "quiet": False,
-                    "no_warnings": False,
-                }
+    ydl_opts = {
+        "format": "bestaudio[ext=m4a]/bestaudio/best",
+        "outtmpl": os.path.join(DOWNLOAD_DIR, "%(title).80s-%(id)s.%(ext)s"),
+        "noplaylist": True,
+        "quiet": False,
+        "no_warnings": False,
+    }
 
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(url, download=True)
-                    if "entries" in info and info["entries"]:
-                        info = info["entries"][0]
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            if "entries" in info and info["entries"]:
+                info = info["entries"][0]
 
-                title = info.get("title") or "Unknown"
-                author = info.get("uploader") or info.get("channel") or "Unknown"
-                duration = info.get("duration")
-                thumbnail = info.get("thumbnail")
-                ext = info.get("ext")
+            title = info.get("title") or "Unknown"
+            author = info.get("uploader") or info.get("channel") or "Unknown"
+            duration = info.get("duration")
+            thumbnail = info.get("thumbnail")
+            ext = info.get("ext")
 
-                base = f"{_sanitize(title)}-{info.get('id')}"
-                filename = None
+            base = f"{_sanitize(title)}-{info.get('id')}"
+            filename = None
+            for f in os.listdir(DOWNLOAD_DIR):
+                if f.startswith(base) and f.endswith(f".{ext}"):
+                    filename = f
+                    break
+            if not filename:
+                vid = info.get("id")
                 for f in os.listdir(DOWNLOAD_DIR):
-                    if f.startswith(base) and f.endswith(f".{ext}"):
+                    if f.endswith(f".{ext}") and (vid in f):
                         filename = f
                         break
-                if not filename:
-                    vid = info.get("id")
-                    for f in os.listdir(DOWNLOAD_DIR):
-                        if f.endswith(f".{ext}") and (vid in f):
-                            filename = f
-                            break
-                if not filename:
-                    return jsonify({"error": "file not found after download"}), 500
+            if not filename:
+                return jsonify({"error": "file not found after download"}), 500
 
-                base_url = request.host_url.rstrip('/')
-                file_url = f"{base_url}/files/{filename}"
+            base_url = request.host_url.rstrip('/')
+            file_url = f"{base_url}/files/{filename}"
 
                 logging.info(f"다운로드 완료 (기존 방식): {filename}")
-                return jsonify({
-                    "file_url": file_url,
-                    "title": title,
-                    "author": author,
-                    "thumbnail_url": thumbnail,
-                    "ext": ext,
-                    "duration": duration,
+            return jsonify({
+                "file_url": file_url,
+                "title": title,
+                "author": author,
+                "thumbnail_url": thumbnail,
+                "ext": ext,
+                "duration": duration,
                     "method": "fallback"
-                }), 200
+            }), 200
 
             except Exception as e_fallback:
                 logging.error(f"기존 방식 실패: {str(e_fallback)}")
-                
+        
                 # 최종 폴백: 비디오 정보만 제공
-                try:
-                    video_id = extract_video_id(url)
-                    if not video_id:
-                        return jsonify({"error": "비디오 ID를 추출할 수 없습니다"}), 400
-                    
-                    alt_info = get_video_info_alternative(video_id)
-                    if not alt_info['success']:
-                        return jsonify({"error": "비디오 정보를 가져올 수 없습니다"}), 500
-                    
-                    return jsonify({
+        try:
+            video_id = extract_video_id(url)
+            if not video_id:
+                return jsonify({"error": "비디오 ID를 추출할 수 없습니다"}), 400
+            
+            alt_info = get_video_info_alternative(video_id)
+            if not alt_info['success']:
+                return jsonify({"error": "비디오 정보를 가져올 수 없습니다"}), 500
+            
+            return jsonify({
                         "error": "다운로드 실패 - 모든 방법 실패",
-                        "title": alt_info['title'],
-                        "author": alt_info['author'],
-                        "thumbnail_url": alt_info['thumbnail'],
-                        "video_id": video_id,
+                "title": alt_info['title'],
+                "author": alt_info['author'],
+                "thumbnail_url": alt_info['thumbnail'],
+                "video_id": video_id,
                         "suggestion": "yt-dlp 업데이트 또는 VPN 사용을 시도해보세요"
-                    }), 503
-                    
-                except Exception as alt_e:
-                    return jsonify({"error": f"모든 방법 실패: {str(alt_e)}"}), 500
+            }), 503
+            
+        except Exception as alt_e:
+            return jsonify({"error": f"모든 방법 실패: {str(alt_e)}"}), 500
 
 
 @app.get('/files/<path:filename>')
