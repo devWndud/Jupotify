@@ -12,17 +12,14 @@ import logging
 from datetime import datetime, timedelta
 from collections import defaultdict
 import time
+import shutil
 from alternative_downloader import get_video_info_alternative, extract_video_id
-from proxy_support import get_proxy_ytdl_opts
-from cookie_support import get_cookie_ytdl_opts
-from direct_extractor import extract_video_info_direct, extract_audio_url_direct
-from audio_downloader import download_audio_file
 
 app = Flask(__name__)
 
 # Rate limiting 설정
 limiter = Limiter(
-    app=app,
+    app,
     key_func=get_remote_address,
     default_limits=["100 per hour", "10 per minute"]
 )
@@ -80,7 +77,7 @@ def security_check():
                 abort(403, description="IP blocked due to suspicious activity")
     
     # 허용된 엔드포인트만 접근 허용
-    allowed_endpoints = ['/extract', '/download', '/files/', '/delete', '/version', '/health', '/test-network']
+    allowed_endpoints = ['/extract', '/download', '/files/', '/delete', '/version', '/health']
     if not any(request.path.startswith(endpoint) for endpoint in allowed_endpoints):
         logging.info(f"Access to non-allowed endpoint: {request.path} from {client_ip}")
         abort(404)
@@ -94,39 +91,6 @@ def health_check():
         'version': '1.0.0'
     }), 200
 
-# 네트워크 테스트 엔드포인트
-@app.route('/test-network')
-def test_network():
-    import socket
-    import requests
-    
-    results = {
-        'dns_resolution': {},
-        'youtube_access': {},
-        'timestamp': datetime.now().isoformat()
-    }
-    
-    # DNS 해결 테스트
-    test_domains = ['www.youtube.com', 'youtube.com', 'www.google.com']
-    for domain in test_domains:
-        try:
-            ip = socket.gethostbyname(domain)
-            results['dns_resolution'][domain] = {'status': 'success', 'ip': ip}
-        except socket.gaierror as e:
-            results['dns_resolution'][domain] = {'status': 'failed', 'error': str(e)}
-    
-    # YouTube 접근 테스트
-    test_urls = ['https://www.youtube.com', 'https://www.google.com']
-    for url in test_urls:
-        try:
-            response = requests.get(url, timeout=10)
-            results['youtube_access'][url] = {'status': 'success', 'code': response.status_code}
-        except requests.exceptions.RequestException as e:
-            results['youtube_access'][url] = {'status': 'failed', 'error': str(e)}
-    
-    return jsonify(results), 200
-
-# 최소한의 YouTube 설정 (DNS 문제 해결)
 YDL_OPTS = {
     "quiet": True,
     "skip_download": True,
@@ -135,73 +99,40 @@ YDL_OPTS = {
     "extract_flat": False,
     "forcejson": True,
     "noplaylist": True,
+    "source_address": "0.0.0.0",
     "http_headers": {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        "Accept-Language": "en-US,en;q=0.9,ko;q=0.8",
         "Accept-Encoding": "gzip, deflate, br",
+        "DNT": "1",
         "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Cache-Control": "max-age=0",
     },
-    "format": "bestaudio[ext=m4a]/bestaudio/best",
-    "extractor_retries": 1,
-    "fragment_retries": 1,
-    "retries": 1,
-    "sleep_interval": 3,
-    "max_sleep_interval": 10,
-    "extractor_args": {
-        "youtube": {
-            "player_client": ["web"],
-            "player_skip": ["webpage"],
-        }
-    },
-    "no_check_certificate": True,
-    "prefer_insecure": True,
-    "verbose": False,
-}
-
-# 대체 설정 (더 간단한 설정)
-YDL_OPTS_AGGRESSIVE = {
-    "quiet": True,
-    "skip_download": True,
-    "nocheckcertificate": True,
-    "geo_bypass": True,
-    "extract_flat": False,
-    "forcejson": True,
-    "noplaylist": True,
-    "http_headers": {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Connection": "keep-alive",
-    },
-    "format": "bestaudio[ext=m4a]/bestaudio/best",
-    "extractor_retries": 1,
-    "fragment_retries": 1,
-    "retries": 1,
+    "format": "bestaudio/best",
+    "extractor_retries": 5,
+    "fragment_retries": 5,
+    "retries": 5,
     "sleep_interval": 2,
-    "max_sleep_interval": 5,
+    "max_sleep_interval": 10,
+    "sleep_interval_subtitles": 1,
+    "sleep_interval_requests": 1,
+    "sleep_interval_subtitles": 1,
+    "sleep_interval_requests": 1,
     "extractor_args": {
         "youtube": {
-            "player_client": ["web"],
+            "player_client": ["android_music", "android_creator", "android", "web"],
             "player_skip": ["webpage"],
-            "innertube_host": "www.youtube.com",
+            "innertube_host": "music.youtube.com",
             "innertube_key": "AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30",
         }
     },
-    "no_check_certificate": True,
-    "prefer_insecure": True,
-    "verbose": False,
 }
-
-# 프록시 지원 설정
-YDL_OPTS_PROXY = get_proxy_ytdl_opts(YDL_OPTS)
-
-# 쿠키 지원 설정
-YDL_OPTS_COOKIE = get_cookie_ytdl_opts(YDL_OPTS)
-
-# 프록시 + 쿠키 조합 설정
-YDL_OPTS_PROXY_COOKIE = get_proxy_ytdl_opts(get_cookie_ytdl_opts(YDL_OPTS))
 
 @app.post("/extract")
 @limiter.limit("5 per minute")
@@ -211,130 +142,107 @@ def extract():
     if not url:
         return jsonify({"error": "missing url"}), 400
 
-    # 다중 시도 로직 (DNS 문제 해결 우선)
-    configs = [
-        ("minimal", YDL_OPTS),  # 최소한의 설정 먼저 시도
-        ("aggressive", YDL_OPTS_AGGRESSIVE),
-        ("proxy", YDL_OPTS_PROXY),
-        ("cookie", YDL_OPTS_COOKIE),
-        ("proxy_cookie", YDL_OPTS_PROXY_COOKIE),
-    ]
-    
-    last_error = None
-    
-    for config_name, config in configs:
-        try:
-            logging.info(f"Trying {config_name} configuration for {url}")
-            with yt_dlp.YoutubeDL(config) as ydl:
-                info = ydl.extract_info(url, download=False)
-                # If playlist mixed in, pick the first entry
-                if "entries" in info and info["entries"]:
-                    info = info["entries"][0]
-
-                title = info.get("title") or "Unknown"
-                author = info.get("uploader") or info.get("channel") or "Unknown"
-                duration = info.get("duration")  # seconds
-                thumbnail = info.get("thumbnail")
-
-                # Find direct audio URL from formats
-                audio_url = None
-                ext = None
-                formats = info.get("formats") or []
-                # Prefer m4a/mp4 first
-                preferred = []
-                fallback = []
-                for f in formats:
-                    # Only audio
-                    if f.get("vcodec") in (None, "none"):
-                        (preferred if (f.get("ext") in ("m4a", "mp4")) else fallback).append(f)
-                selected = None
-                if preferred:
-                    selected = max(preferred, key=lambda x: x.get("abr") or 0)
-                elif fallback:
-                    selected = max(fallback, key=lambda x: x.get("abr") or 0)
-
-                if selected:
-                    audio_url = selected.get("url")
-                    ext = selected.get("ext")
-
-                logging.info(f"Success with {config_name} configuration")
-                return jsonify({
-                    "audio_url": audio_url,
-                    "title": title,
-                    "author": author,
-                    "thumbnail_url": thumbnail,
-                    "ext": ext,
-                    "duration": duration,
-                    "method": config_name
-                }), 200
-                
-        except Exception as e:
-            last_error = e
-            logging.warning(f"{config_name} configuration failed: {str(e)}")
-            continue
-    
-    # 모든 yt-dlp 방법이 실패한 경우, 직접 추출 시도
-    logging.info("All yt-dlp methods failed, trying direct extraction")
     try:
-        direct_result = extract_video_info_direct(url)
-        logging.info(f"Direct extraction result: {direct_result}")
-        
-        if direct_result.get("success"):
-            # 실제 오디오 파일 다운로드 시도
-            logging.info("Attempting actual audio file download")
-            try:
-                download_result = download_audio_file(url, DOWNLOAD_DIR)
-                if download_result:
-                    filepath, filename = download_result
-                    logging.info(f"Audio file downloaded: {filename}")
-                    
-                    # 파일 URL 생성
-                    base_url = request.host_url.rstrip('/')
-                    file_url = f"{base_url}/files/{filename}"
-                    
-                    return jsonify({
-                        "file_url": file_url,
-                        "title": direct_result.get("title", "Unknown"),
-                        "author": direct_result.get("author", "Unknown"),
-                        "thumbnail_url": direct_result.get("thumbnail", ""),
-                        "duration": direct_result.get("duration", 0),
-                        "method": "direct_download",
-                        "filename": filename
-                    }), 200
-                else:
-                    logging.warning("Audio file download failed")
-            except Exception as e:
-                logging.error(f"Audio download error: {e}")
-            
-            # 파일 다운로드 실패 시 정보만 제공
-            audio_url = extract_audio_url_direct(url)
-            logging.info(f"Audio URL extracted: {audio_url}")
-            
+        with yt_dlp.YoutubeDL(YDL_OPTS) as ydl:
+            info = ydl.extract_info(url, download=False)
+            # If playlist mixed in, pick the first entry
+            if "entries" in info and info["entries"]:
+                info = info["entries"][0]
+
+            title = info.get("title") or "Unknown"
+            author = info.get("uploader") or info.get("channel") or "Unknown"
+            duration = info.get("duration")  # seconds
+            thumbnail = info.get("thumbnail")
+
+            # Find direct audio URL from formats
+            audio_url = None
+            ext = None
+            formats = info.get("formats") or []
+            # Prefer m4a/mp4 first
+            preferred = []
+            fallback = []
+            for f in formats:
+                # Only audio
+                if f.get("vcodec") in (None, "none"):
+                    (preferred if (f.get("ext") in ("m4a", "mp4")) else fallback).append(f)
+            selected = None
+            if preferred:
+                selected = max(preferred, key=lambda x: x.get("abr") or 0)
+            elif fallback:
+                selected = max(fallback, key=lambda x: x.get("abr") or 0)
+
+            if selected:
+                audio_url = selected.get("url")
+                ext = selected.get("ext")
+
             return jsonify({
                 "audio_url": audio_url,
-                "title": direct_result.get("title", "Unknown"),
-                "author": direct_result.get("author", "Unknown"),
-                "thumbnail_url": direct_result.get("thumbnail", ""),
-                "duration": direct_result.get("duration", 0),
-                "method": "direct_extraction"
+                "title": title,
+                "author": author,
+                "thumbnail_url": thumbnail,
+                "ext": ext,
+                "duration": duration
             }), 200
-        else:
-            logging.warning(f"Direct extraction failed: {direct_result.get('error')}")
     except Exception as e:
-        logging.error(f"Direct extraction error: {e}")
-        import traceback
-        logging.error(f"Traceback: {traceback.format_exc()}")
-    
-    # 모든 방법이 실패한 경우
-    logging.error(f"All extraction methods failed for {url}")
-    return jsonify({
-        "error": f"모든 추출 방법 실패: {str(last_error)}",
-        "suggestion": "YouTube가 yt-dlp를 차단하고 있습니다. VPN 사용을 권장합니다."
-    }), 503
+        return jsonify({"error": str(e)}), 500
 
 
 def _sanitize(name: str) -> str:
     return re.sub(r"[\\/:*?\"<>|]", "_", name).strip()[:120]
+
+
+def _run_with_yt_dlp_module(url: str, outdir: str, quality: str = "192"):
+    """yt-dlp 모듈을 사용한 다운로드 (download_mp3.py 방식)"""
+    try:
+        from yt_dlp import YoutubeDL
+    except Exception as e:
+        raise RuntimeError("yt_dlp 모듈을 불러올 수 없습니다.") from e
+
+    outtmpl = os.path.join(outdir, "%(title)s.%(ext)s")
+
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'outtmpl': outtmpl,
+        'noplaylist': True,
+        'quiet': False,
+        'no_warnings': True,
+        'retries': 3,
+        'continuedl': True,
+        'ffmpeg_location': None,
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': quality,
+        }],
+    }
+
+    with YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        if "entries" in info and info["entries"]:
+            info = info["entries"][0]
+        return info
+
+
+def _run_with_yt_dlp_exe(url: str, outdir: str, quality: str = "192"):
+    """시스템 yt-dlp 실행파일을 사용한 다운로드 (download_mp3.py 방식)"""
+    exe_name = shutil.which("yt-dlp") or shutil.which("yt-dlp.exe")
+    if not exe_name:
+        raise RuntimeError("시스템에서 yt-dlp 실행파일을 찾을 수 없습니다.")
+
+    outtmpl = os.path.join(outdir, "%(title)s.%(ext)s")
+    cmd = [
+        exe_name,
+        "-x",
+        "--audio-format", "mp3",
+        "--audio-quality", f"{quality}K",
+        "-o", outtmpl,
+        url
+    ]
+
+    logging.info(f"외부 yt-dlp 실행: {' '.join(cmd)}")
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(f"yt-dlp 프로세스가 코드 {proc.returncode}로 종료되었습니다: {proc.stderr}")
 
 
 @app.post("/download")
@@ -345,59 +253,119 @@ def download():
     if not url:
         return jsonify({"error": "missing url"}), 400
 
-    # 다운로드용 설정들 (차단 우회 방법 포함)
-    download_configs = [
-        ("standard", {
-            "format": "bestaudio[ext=m4a]/bestaudio/best",
-            "outtmpl": os.path.join(DOWNLOAD_DIR, "%(title).80s-%(id)s.%(ext)s"),
-            "noplaylist": True,
-            "quiet": False,
-            "no_warnings": False,
-            **YDL_OPTS
-        }),
-        ("aggressive", {
-            "format": "bestaudio[ext=m4a]/bestaudio/best",
-            "outtmpl": os.path.join(DOWNLOAD_DIR, "%(title).80s-%(id)s.%(ext)s"),
-            "noplaylist": True,
-            "quiet": False,
-            "no_warnings": False,
-            **YDL_OPTS_AGGRESSIVE
-        }),
-        ("proxy", {
-            "format": "bestaudio[ext=m4a]/bestaudio/best",
-            "outtmpl": os.path.join(DOWNLOAD_DIR, "%(title).80s-%(id)s.%(ext)s"),
-            "noplaylist": True,
-            "quiet": False,
-            "no_warnings": False,
-            **YDL_OPTS_PROXY
-        }),
-        ("cookie", {
-            "format": "bestaudio[ext=m4a]/bestaudio/best",
-            "outtmpl": os.path.join(DOWNLOAD_DIR, "%(title).80s-%(id)s.%(ext)s"),
-            "noplaylist": True,
-            "quiet": False,
-            "no_warnings": False,
-            **YDL_OPTS_COOKIE
-        }),
-        ("proxy_cookie", {
-            "format": "bestaudio[ext=m4a]/bestaudio/best",
-            "outtmpl": os.path.join(DOWNLOAD_DIR, "%(title).80s-%(id)s.%(ext)s"),
-            "noplaylist": True,
-            "quiet": False,
-            "no_warnings": False,
-            **YDL_OPTS_PROXY_COOKIE
-        })
-    ]
+    quality = data.get("quality", "192")  # MP3 품질 (기본 192kbps)
+    format_type = data.get("format", "mp3")  # 기본 MP3
 
-    last_error = None
-    
-    for config_name, ydl_opts in download_configs:
+    logging.info(f"다운로드 시작: {url}")
+
+    # 방법 1: yt-dlp 모듈 방식 시도 (download_mp3.py 방식)
+    try:
+        logging.info("→ yt-dlp 파이썬 모듈로 시도합니다...")
+        info = _run_with_yt_dlp_module(url, DOWNLOAD_DIR, quality)
+        
+        title = info.get("title") or "Unknown"
+        author = info.get("uploader") or info.get("channel") or "Unknown"
+        duration = info.get("duration")
+        thumbnail = info.get("thumbnail")
+        video_id = info.get("id")
+
+        # 다운로드된 파일 찾기
+        sanitized_title = _sanitize(title)
+        filename = None
+        
+        # MP3 파일 찾기
+        for f in os.listdir(DOWNLOAD_DIR):
+            if sanitized_title in f and f.endswith(".mp3"):
+                filename = f
+                break
+        
+        # MP3가 없으면 원본 파일 찾기
+        if not filename:
+            for f in os.listdir(DOWNLOAD_DIR):
+                if sanitized_title in f or (video_id and video_id in f):
+                    filename = f
+                    break
+
+        if not filename:
+            return jsonify({"error": "file not found after download"}), 500
+
+        # Build public URL
+        base_url = request.host_url.rstrip('/')
+        file_url = f"{base_url}/files/{filename}"
+
+        logging.info(f"다운로드 완료 (모듈 방식): {filename}")
+        return jsonify({
+            "file_url": file_url,
+            "title": title,
+            "author": author,
+            "thumbnail_url": thumbnail,
+            "ext": "mp3",
+            "duration": duration,
+            "method": "module"
+        }), 200
+
+    except Exception as e_mod:
+        logging.warning(f"모듈 방식 실패: {str(e_mod)}")
+
+        # 방법 2: yt-dlp 실행파일 방식 시도
         try:
-            logging.info(f"Trying {config_name} download for {url}")
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
+            logging.info("→ 시스템 yt-dlp 실행파일로 시도합니다...")
+            _run_with_yt_dlp_exe(url, DOWNLOAD_DIR, quality)
+            
+            # 실행파일 방식은 정보 추출이 별도로 필요
+            with yt_dlp.YoutubeDL({"quiet": True, "skip_download": True}) as ydl:
+                info = ydl.extract_info(url, download=False)
                 if "entries" in info and info["entries"]:
                     info = info["entries"][0]
+
+            title = info.get("title") or "Unknown"
+            author = info.get("uploader") or info.get("channel") or "Unknown"
+            duration = info.get("duration")
+            thumbnail = info.get("thumbnail")
+            sanitized_title = _sanitize(title)
+
+            # 파일 찾기
+            filename = None
+            for f in os.listdir(DOWNLOAD_DIR):
+                if sanitized_title in f and f.endswith(".mp3"):
+                    filename = f
+                    break
+
+            if not filename:
+                return jsonify({"error": "file not found after download"}), 500
+
+            base_url = request.host_url.rstrip('/')
+            file_url = f"{base_url}/files/{filename}"
+
+            logging.info(f"다운로드 완료 (실행파일 방식): {filename}")
+            return jsonify({
+                "file_url": file_url,
+                "title": title,
+                "author": author,
+                "thumbnail_url": thumbnail,
+                "ext": "mp3",
+                "duration": duration,
+                "method": "executable"
+            }), 200
+
+        except Exception as e_exe:
+            logging.error(f"실행파일 방식 실패: {str(e_exe)}")
+
+            # 방법 3: 기존 방식으로 폴백
+            try:
+                logging.info("→ 기존 방식으로 폴백합니다...")
+                ydl_opts = {
+                    "format": "bestaudio[ext=m4a]/bestaudio/best",
+                    "outtmpl": os.path.join(DOWNLOAD_DIR, "%(title).80s-%(id)s.%(ext)s"),
+                    "noplaylist": True,
+                    "quiet": False,
+                    "no_warnings": False,
+                }
+
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    if "entries" in info and info["entries"]:
+                        info = info["entries"][0]
 
                 title = info.get("title") or "Unknown"
                 author = info.get("uploader") or info.get("channel") or "Unknown"
@@ -405,7 +373,6 @@ def download():
                 thumbnail = info.get("thumbnail")
                 ext = info.get("ext")
 
-                # Resolve output filename
                 base = f"{_sanitize(title)}-{info.get('id')}"
                 filename = None
                 for f in os.listdir(DOWNLOAD_DIR):
@@ -413,7 +380,6 @@ def download():
                         filename = f
                         break
                 if not filename:
-                    # Fallback: scan by id
                     vid = info.get("id")
                     for f in os.listdir(DOWNLOAD_DIR):
                         if f.endswith(f".{ext}") and (vid in f):
@@ -422,11 +388,10 @@ def download():
                 if not filename:
                     return jsonify({"error": "file not found after download"}), 500
 
-                # Build public URL
                 base_url = request.host_url.rstrip('/')
                 file_url = f"{base_url}/files/{filename}"
 
-                logging.info(f"Success with {config_name} download")
+                logging.info(f"다운로드 완료 (기존 방식): {filename}")
                 return jsonify({
                     "file_url": file_url,
                     "title": title,
@@ -434,68 +399,33 @@ def download():
                     "thumbnail_url": thumbnail,
                     "ext": ext,
                     "duration": duration,
-                    "method": config_name
+                    "method": "fallback"
                 }), 200
+
+            except Exception as e_fallback:
+                logging.error(f"기존 방식 실패: {str(e_fallback)}")
                 
-        except Exception as e:
-            last_error = e
-            logging.warning(f"{config_name} download failed: {str(e)}")
-            continue
-    
-    # 모든 다운로드 방법이 실패한 경우, 직접 추출 시도
-    logging.info("All yt-dlp methods failed, trying direct extraction")
-    try:
-        direct_result = extract_video_info_direct(url)
-        logging.info(f"Direct extraction result: {direct_result}")
-        
-        if direct_result.get("success"):
-            # 오디오 URL도 시도
-            audio_url = extract_audio_url_direct(url)
-            logging.info(f"Audio URL extracted: {audio_url}")
-            
-            return jsonify({
-                "audio_url": audio_url,
-                "title": direct_result.get("title", "Unknown"),
-                "author": direct_result.get("author", "Unknown"),
-                "thumbnail_url": direct_result.get("thumbnail", ""),
-                "duration": direct_result.get("duration", 0),
-                "method": "direct_extraction"
-            }), 200
-        else:
-            logging.warning(f"Direct extraction failed: {direct_result.get('error')}")
-    except Exception as e:
-        logging.error(f"Direct extraction error: {e}")
-        import traceback
-        logging.error(f"Traceback: {traceback.format_exc()}")
-    
-    # 직접 추출도 실패한 경우, 대체 방법으로 정보만 제공
-    logging.info("Direct extraction failed, trying alternative method")
-    try:
-        video_id = extract_video_id(url)
-        if not video_id:
-            return jsonify({"error": "비디오 ID를 추출할 수 없습니다"}), 400
-        
-        # 대체 방법으로 비디오 정보 가져오기
-        alt_info = get_video_info_alternative(video_id)
-        if not alt_info['success']:
-            return jsonify({"error": "비디오 정보를 가져올 수 없습니다"}), 500
-        
-        # 임시 파일 생성 (실제 다운로드는 불가능하지만 정보는 제공)
-        return jsonify({
-            "error": "다운로드 실패 - YouTube가 yt-dlp를 차단하고 있습니다",
-            "title": alt_info['title'],
-            "author": alt_info['author'],
-            "thumbnail_url": alt_info['thumbnail'],
-            "video_id": video_id,
-            "suggestion": "VPN 사용 또는 다른 서버를 사용해보세요",
-            "method": "alternative_info_only"
-        }), 503
-        
-    except Exception as alt_e:
-        return jsonify({
-            "error": f"모든 방법 실패: {str(last_error)}",
-            "suggestion": "YouTube가 yt-dlp를 차단하고 있습니다. VPN 사용을 권장합니다."
-        }), 500
+                # 최종 폴백: 비디오 정보만 제공
+                try:
+                    video_id = extract_video_id(url)
+                    if not video_id:
+                        return jsonify({"error": "비디오 ID를 추출할 수 없습니다"}), 400
+                    
+                    alt_info = get_video_info_alternative(video_id)
+                    if not alt_info['success']:
+                        return jsonify({"error": "비디오 정보를 가져올 수 없습니다"}), 500
+                    
+                    return jsonify({
+                        "error": "다운로드 실패 - 모든 방법 실패",
+                        "title": alt_info['title'],
+                        "author": alt_info['author'],
+                        "thumbnail_url": alt_info['thumbnail'],
+                        "video_id": video_id,
+                        "suggestion": "yt-dlp 업데이트 또는 VPN 사용을 시도해보세요"
+                    }), 503
+                    
+                except Exception as alt_e:
+                    return jsonify({"error": f"모든 방법 실패: {str(alt_e)}"}), 500
 
 
 @app.get('/files/<path:filename>')
