@@ -319,6 +319,112 @@ def download():
         logging.error(f"에러 타입: {type(e_mod)}")
         import traceback
         logging.error(traceback.format_exc())
+        
+        # 플레이리스트 다운로드 중단 시, 이미 다운로드된 파일 확인
+        try:
+            # DOWNLOAD_DIR에 있는 최근 파일들 확인
+            all_files = os.listdir(DOWNLOAD_DIR)
+            if all_files:
+                # MP3 파일만 필터링
+                mp3_files = [f for f in all_files if f.endswith(".mp3")]
+                if mp3_files:
+                    # 최근 생성된 파일 찾기
+                    mp3_files.sort(key=lambda x: os.path.getmtime(os.path.join(DOWNLOAD_DIR, x)), reverse=True)
+                    latest_file = mp3_files[0]
+                    logging.info(f"최근 다운로드된 파일 발견: {latest_file}")
+                    
+                    # 파일명에서 정보 추출
+                    title = latest_file.replace(".mp3", "")
+                    author = "Unknown"
+                    
+                    # 메타데이터 파일이 있으면 읽기
+                    meta_file = latest_file.replace(".mp3", ".metadata.json")
+                    if os.path.exists(os.path.join(DOWNLOAD_DIR, meta_file)):
+                        try:
+                            with open(os.path.join(DOWNLOAD_DIR, meta_file), 'r') as f:
+                                meta = json.load(f)
+                                title = meta.get('title', title)
+                                author = meta.get('artist', 'Unknown')
+                        except:
+                            pass
+                    
+                    base_url = request.host_url.rstrip('/')
+                    file_url = f"{base_url}/files/{latest_file}"
+                    
+                    logging.info(f"최근 파일로 응답: {latest_file}")
+                    return jsonify({
+                        "file_url": file_url,
+                        "title": title,
+                        "author": author,
+                        "thumbnail_url": None,
+                        "ext": "mp3",
+                        "duration": None,
+                        "method": "latest_file"
+                    }), 200
+        except Exception as fallback_error:
+            logging.error(f"최근 파일 찾기 실패: {str(fallback_error)}")
+
+        # 플레이리스트 재개 시도
+        try:
+            logging.info("→ 플레이리스트 재개 시도...")
+            with yt_dlp.YoutubeDL({
+                'format': 'bestaudio/best',
+                'outtmpl': os.path.join(DOWNLOAD_DIR, "%(title)s.%(ext)s"),
+                'noplaylist': False,
+                'quiet': False,
+                'no_warnings': True,
+                'retries': 3,
+                'continuedl': True,  # 재개 모드
+                'ffmpeg_location': None,
+                'postprocessors': [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': quality,
+                }],
+            }) as ydl:
+                info = ydl.extract_info(url, download=True)
+                if isinstance(info, dict) and "entries" in info and info["entries"]:
+                    info = info["entries"][0]
+                
+                title = info.get("title") or "Unknown"
+                author = info.get("uploader") or info.get("channel") or "Unknown"
+                duration = info.get("duration")
+                thumbnail = info.get("thumbnail")
+                video_id = info.get("id")
+                
+                sanitized_title = _sanitize(title)
+                filename = None
+                
+                for f in os.listdir(DOWNLOAD_DIR):
+                    if sanitized_title in f and f.endswith(".mp3"):
+                        filename = f
+                        break
+                
+                if not filename:
+                    for f in os.listdir(DOWNLOAD_DIR):
+                        if sanitized_title in f or (video_id and video_id in f):
+                            filename = f
+                            break
+
+                if not filename:
+                    raise Exception("파일을 찾을 수 없습니다")
+
+                base_url = request.host_url.rstrip('/')
+                file_url = f"{base_url}/files/{filename}"
+
+                logging.info(f"다운로드 완료 (플레이리스트 재개): {filename}")
+                return jsonify({
+                    "file_url": file_url,
+                    "title": title,
+                    "author": author,
+                    "thumbnail_url": thumbnail,
+                    "ext": "mp3",
+                    "duration": duration,
+                    "method": "resume"
+                }), 200
+        except Exception as e_resume:
+            logging.error(f"플레이리스트 재개 실패: {str(e_resume)}")
+            # 재개 실패 시 계속 진행
 
         # 방법 2: yt-dlp 실행파일 방식 시도
         try:
