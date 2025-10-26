@@ -284,25 +284,41 @@ def download():
         thumbnail = info.get("thumbnail")
         video_id = info.get("id")
 
-        # 다운로드된 파일 찾기
+        # 다운로드된 파일 찾기 - 파일명으로 매칭 시도
+        import time
+        time.sleep(1)  # 파일 시스템 동기화 대기
+        
         sanitized_title = _sanitize(title)
         filename = None
         
-        # MP3 파일 찾기
-        for f in os.listdir(DOWNLOAD_DIR):
-            if sanitized_title in f and f.endswith(".mp3"):
+        # 디렉토리의 모든 파일 가져오기
+        all_files = os.listdir(DOWNLOAD_DIR)
+        mp3_files = [f for f in all_files if f.endswith(".mp3")]
+        
+        # 제목으로 정확히 매칭되는 파일 찾기
+        for f in mp3_files:
+            if sanitized_title in f:
                 filename = f
+                logging.info(f"파일명 매칭 성공: {filename}")
                 break
         
-        # MP3가 없으면 원본 파일 찾기
+        # 매칭 실패 시 최근 생성된 MP3 파일 사용
+        if not filename and mp3_files:
+            mp3_files.sort(key=lambda x: os.path.getmtime(os.path.join(DOWNLOAD_DIR, x)), reverse=True)
+            filename = mp3_files[0]
+            logging.info(f"최근 파일 사용: {filename}")
+        
+        # 원본 파일도 찾기
         if not filename:
-            for f in os.listdir(DOWNLOAD_DIR):
-                if sanitized_title in f or (video_id and video_id in f):
+            for f in all_files:
+                if not f.endswith(".mp3") and (sanitized_title in f or (video_id and video_id in f)):
                     filename = f
                     break
 
         if not filename:
             logging.error(f"파일을 찾을 수 없습니다. 다운로드 디렉토리: {DOWNLOAD_DIR}")
+            logging.error(f"디렉토리 내용: {os.listdir(DOWNLOAD_DIR)}")
+            logging.error(f"찾는 제목: {sanitized_title}")
             return jsonify({"error": "file not found after download"}), 500
 
         # Build public URL
