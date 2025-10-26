@@ -267,6 +267,11 @@ def download():
         logging.info("→ yt-dlp 파이썬 모듈로 시도합니다...")
         info = _run_with_yt_dlp_module(url, DOWNLOAD_DIR, quality)
         
+        # info가 딕셔너리가 아니면 예외 처리
+        if not isinstance(info, dict):
+            logging.error(f"info 타입 오류: {type(info)}")
+            raise TypeError("info is not a dictionary")
+        
         title = info.get("title") or "Unknown"
         author = info.get("uploader") or info.get("channel") or "Unknown"
         duration = info.get("duration")
@@ -291,6 +296,7 @@ def download():
                     break
 
         if not filename:
+            logging.error(f"파일을 찾을 수 없습니다. 다운로드 디렉토리: {DOWNLOAD_DIR}")
             return jsonify({"error": "file not found after download"}), 500
 
         # Build public URL
@@ -309,7 +315,10 @@ def download():
         }), 200
 
     except Exception as e_mod:
-        logging.warning(f"모듈 방식 실패: {str(e_mod)}")
+        logging.error(f"모듈 방식 실패: {str(e_mod)}")
+        logging.error(f"에러 타입: {type(e_mod)}")
+        import traceback
+        logging.error(traceback.format_exc())
 
         # 방법 2: yt-dlp 실행파일 방식 시도
         try:
