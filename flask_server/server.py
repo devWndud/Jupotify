@@ -198,37 +198,43 @@ def _run_with_yt_dlp_module(url: str, outdir: str, quality: str = "192"):
     except Exception as e:
         raise RuntimeError("yt_dlp 모듈을 불러올 수 없습니다.") from e
 
+    # 출력 템플릿: outdir/<title>.mp3
     outtmpl = os.path.join(outdir, "%(title)s.%(ext)s")
 
     ydl_opts = {
         'format': 'bestaudio/best',
         'outtmpl': outtmpl,
-        'noplaylist': True,
+        'noplaylist': False,  # 플레이리스트면 여러개 받을 수 있음
         'quiet': False,
         'no_warnings': True,
         'retries': 3,
         'continuedl': True,
-        'ffmpeg_location': None,
+        'ffmpeg_location': None,  # 필요 시 절대경로 지정
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
             'preferredquality': quality,
         }],
+        # 필요하면 cookie나 proxy 옵션 추가 가능
     }
 
     with YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
-        if "entries" in info and info["entries"]:
+        # info가 playlist인 경우엔 여러 항목 처리됨
+        if isinstance(info, dict) and "entries" in info and info["entries"]:
+            # 플레이리스트인 경우 첫 번째 항목 반환
             info = info["entries"][0]
         return info
 
 
 def _run_with_yt_dlp_exe(url: str, outdir: str, quality: str = "192"):
     """시스템 yt-dlp 실행파일을 사용한 다운로드 (download_mp3.py 방식)"""
+    # 시스템에서 yt-dlp 실행파일을 찾는다.
     exe_name = shutil.which("yt-dlp") or shutil.which("yt-dlp.exe")
     if not exe_name:
-        raise RuntimeError("시스템에서 yt-dlp 실행파일을 찾을 수 없습니다.")
+        raise RuntimeError("시스템에서 yt-dlp 실행파일을 찾을 수 없습니다. (pip 설치 또는 실행파일 배치 필요)")
 
+    # 커맨드라인: yt-dlp -x --audio-format mp3 --audio-quality 192K -o "<outdir/%(title)s.%(ext)s>" <url>
     outtmpl = os.path.join(outdir, "%(title)s.%(ext)s")
     cmd = [
         exe_name,
@@ -240,9 +246,9 @@ def _run_with_yt_dlp_exe(url: str, outdir: str, quality: str = "192"):
     ]
 
     logging.info(f"외부 yt-dlp 실행: {' '.join(cmd)}")
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    proc = subprocess.run(cmd)
     if proc.returncode != 0:
-        raise RuntimeError(f"yt-dlp 프로세스가 코드 {proc.returncode}로 종료되었습니다: {proc.stderr}")
+        raise RuntimeError(f"yt-dlp 프로세스가 코드 {proc.returncode}로 종료되었습니다.")
 
 
 @app.post("/download")
