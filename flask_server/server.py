@@ -135,7 +135,6 @@ YDL_OPTS = {
 }
 
 @app.post("/extract")
-@limiter.limit("5 per minute")
 def extract():
     data = request.get_json(force=True)
     url = data.get("url", "")
@@ -252,7 +251,6 @@ def _run_with_yt_dlp_exe(url: str, outdir: str, quality: str = "192"):
 
 
 @app.post("/download")
-@limiter.limit("3 per minute")
 def download():
     data = request.get_json(force=True)
     url = data.get("url", "")
@@ -435,13 +433,11 @@ def download():
 
 
 @app.get('/files/<path:filename>')
-@limiter.limit("20 per minute")
 def files(filename):
     return send_from_directory(DOWNLOAD_DIR, filename, as_attachment=False)
 
 
 @app.post('/delete')
-@limiter.limit("10 per minute")
 def delete_file():
     data = request.get_json(force=True)
     file_url = data.get('file_url')
