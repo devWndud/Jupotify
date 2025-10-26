@@ -495,78 +495,78 @@ def download():
             # 방법 3: 기존 방식으로 폴백
             try:
                 logging.info("→ 기존 방식으로 폴백합니다...")
-    ydl_opts = {
-        "format": "bestaudio[ext=m4a]/bestaudio/best",
-        "outtmpl": os.path.join(DOWNLOAD_DIR, "%(title).80s-%(id)s.%(ext)s"),
-        "noplaylist": True,
-        "quiet": False,
-        "no_warnings": False,
-    }
+                ydl_opts = {
+                    "format": "bestaudio[ext=m4a]/bestaudio/best",
+                    "outtmpl": os.path.join(DOWNLOAD_DIR, "%(title).80s-%(id)s.%(ext)s"),
+                    "noplaylist": True,
+                    "quiet": False,
+                    "no_warnings": False,
+                }
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            if "entries" in info and info["entries"]:
-                info = info["entries"][0]
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    if "entries" in info and info["entries"]:
+                        info = info["entries"][0]
 
-            title = info.get("title") or "Unknown"
-            author = info.get("uploader") or info.get("channel") or "Unknown"
-            duration = info.get("duration")
-            thumbnail = info.get("thumbnail")
-            ext = info.get("ext")
+                    title = info.get("title") or "Unknown"
+                    author = info.get("uploader") or info.get("channel") or "Unknown"
+                    duration = info.get("duration")
+                    thumbnail = info.get("thumbnail")
+                    ext = info.get("ext")
 
-            base = f"{_sanitize(title)}-{info.get('id')}"
-            filename = None
-            for f in os.listdir(DOWNLOAD_DIR):
-                if f.startswith(base) and f.endswith(f".{ext}"):
-                    filename = f
-                    break
-            if not filename:
-                vid = info.get("id")
-                for f in os.listdir(DOWNLOAD_DIR):
-                    if f.endswith(f".{ext}") and (vid in f):
-                        filename = f
-                        break
-            if not filename:
-                return jsonify({"error": "file not found after download"}), 500
+                    base = f"{_sanitize(title)}-{info.get('id')}"
+                    filename = None
+                    for f in os.listdir(DOWNLOAD_DIR):
+                        if f.startswith(base) and f.endswith(f".{ext}"):
+                            filename = f
+                            break
+                    if not filename:
+                        vid = info.get("id")
+                        for f in os.listdir(DOWNLOAD_DIR):
+                            if f.endswith(f".{ext}") and (vid in f):
+                                filename = f
+                                break
+                    if not filename:
+                        return jsonify({"error": "file not found after download"}), 500
 
-            base_url = request.host_url.rstrip('/')
-            file_url = f"{base_url}/files/{filename}"
+                    base_url = request.host_url.rstrip('/')
+                    file_url = f"{base_url}/files/{filename}"
 
-                logging.info(f"다운로드 완료 (기존 방식): {filename}")
-            return jsonify({
-                "file_url": file_url,
-                "title": title,
-                "author": author,
-                "thumbnail_url": thumbnail,
-                "ext": ext,
-                "duration": duration,
-                    "method": "fallback"
-            }), 200
+                    logging.info(f"다운로드 완료 (기존 방식): {filename}")
+                    return jsonify({
+                        "file_url": file_url,
+                        "title": title,
+                        "author": author,
+                        "thumbnail_url": thumbnail,
+                        "ext": ext,
+                        "duration": duration,
+                        "method": "fallback"
+                    }), 200
 
             except Exception as e_fallback:
                 logging.error(f"기존 방식 실패: {str(e_fallback)}")
-        
+                
                 # 최종 폴백: 비디오 정보만 제공
-        try:
-            video_id = extract_video_id(url)
-            if not video_id:
-                return jsonify({"error": "비디오 ID를 추출할 수 없습니다"}), 400
-            
-            alt_info = get_video_info_alternative(video_id)
-            if not alt_info['success']:
-                return jsonify({"error": "비디오 정보를 가져올 수 없습니다"}), 500
-            
-            return jsonify({
+                try:
+                    video_id = extract_video_id(url)
+                    if not video_id:
+                        return jsonify({"error": "비디오 ID를 추출할 수 없습니다"}), 400
+                    
+                    alt_info = get_video_info_alternative(video_id)
+                    if not alt_info['success']:
+                        return jsonify({"error": "비디오 정보를 가져올 수 없습니다"}), 500
+                    
+                    return jsonify({
                         "error": "다운로드 실패 - 모든 방법 실패",
-                "title": alt_info['title'],
-                "author": alt_info['author'],
-                "thumbnail_url": alt_info['thumbnail'],
-                "video_id": video_id,
+                        "title": alt_info['title'],
+                        "author": alt_info['author'],
+                        "thumbnail_url": alt_info['thumbnail'],
+                        "video_id": video_id,
                         "suggestion": "yt-dlp 업데이트 또는 VPN 사용을 시도해보세요"
-            }), 503
-            
-        except Exception as alt_e:
-            return jsonify({"error": f"모든 방법 실패: {str(alt_e)}"}), 500
+                    }), 503
+                    
+                except Exception as alt_e:
+                    return jsonify({"error": f"모든 방법 실패: {str(alt_e)}"}), 500
 
 
 @app.get('/files/<path:filename>')
