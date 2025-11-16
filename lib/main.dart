@@ -1278,7 +1278,7 @@ class _TabletYouTubeDownloadDialogState extends State<_TabletYouTubeDownloadDial
         final videoUrl = video.url.isNotEmpty ? video.url : 'https://www.youtube.com/watch?v=${video.id.value}';
         final result = await downloader.downloadAudio(
           videoUrl,
-          remoteServerBaseUrl: 'https://infotherapy.kro.kr',
+          remoteServerBaseUrl: 'http://222.231.24.5:8080',
         );
 
         // 다운로드 성공 시 큐에 추가
@@ -2782,7 +2782,7 @@ class _SearchTabState extends State<_SearchTab> with AutomaticKeepAliveClientMix
     try {
       // Ensure we have a valid video URL
       final videoUrl = v.url.isNotEmpty ? v.url : 'https://www.youtube.com/watch?v=${v.id.value}';
-      final result = await _downloader.downloadAudio(videoUrl, remoteServerBaseUrl: 'https://infotherapy.kro.kr', onProgress: (p) {
+      final result = await _downloader.downloadAudio(videoUrl, remoteServerBaseUrl: 'http://222.231.24.5:8080', onProgress: (p) {
         setState(() => _progress[v.id.value] = p);
       });
       // Add to queue
@@ -3262,7 +3262,7 @@ class _YouTubeDownloadBarState extends State<_YouTubeDownloadBar> {
         final yt = YouTubeDownloader();
         // Ensure URL is valid (might be video ID or full URL)
         final videoUrl = url.startsWith('http') ? url : 'https://www.youtube.com/watch?v=$url';
-        final result = await yt.downloadAudio(videoUrl, remoteServerBaseUrl: 'https://infotherapy.kro.kr', onProgress: (p) {
+        final result = await yt.downloadAudio(videoUrl, remoteServerBaseUrl: 'http://222.231.24.5:8080', onProgress: (p) {
           setState(() => _progress = p);
         });
         yt.dispose();

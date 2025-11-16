@@ -320,8 +320,13 @@ def download():
             logging.error(f"찾는 제목: {sanitized_title}")
             return jsonify({"error": "file not found after download"}), 500
 
-        # Build public URL - use configured base URL or request host
-        base_url = SERVER_BASE_URL if SERVER_BASE_URL else request.host_url.rstrip('/')
+        # Build public URL - use request host if available, otherwise use configured base URL
+        # This allows both direct IP access (http://222.231.24.5:8080) and domain access (https://infotherapy.kro.kr)
+        request_host = request.host_url.rstrip('/')
+        if request_host.startswith('http://') or request_host.startswith('https://'):
+            base_url = request_host
+        else:
+            base_url = SERVER_BASE_URL if SERVER_BASE_URL else request_host
         file_url = f"{base_url}/files/{filename}"
 
         logging.info(f"다운로드 완료 (모듈 방식): {filename}")
@@ -369,7 +374,11 @@ def download():
                         except:
                             pass
                     
-                    base_url = SERVER_BASE_URL if SERVER_BASE_URL else request.host_url.rstrip('/')
+                    request_host = request.host_url.rstrip('/')
+                    if request_host.startswith('http://') or request_host.startswith('https://'):
+                        base_url = request_host
+                    else:
+                        base_url = SERVER_BASE_URL if SERVER_BASE_URL else request_host
                     file_url = f"{base_url}/files/{latest_file}"
                     
                     logging.info(f"최근 파일로 응답: {latest_file}")
@@ -430,7 +439,11 @@ def download():
                 if not filename:
                     raise Exception("파일을 찾을 수 없습니다")
 
-                base_url = SERVER_BASE_URL if SERVER_BASE_URL else request.host_url.rstrip('/')
+                request_host = request.host_url.rstrip('/')
+                if request_host.startswith('http://') or request_host.startswith('https://'):
+                    base_url = request_host
+                else:
+                    base_url = SERVER_BASE_URL if SERVER_BASE_URL else request_host
                 file_url = f"{base_url}/files/{filename}"
 
                 logging.info(f"다운로드 완료 (플레이리스트 재개): {filename}")
