@@ -203,14 +203,14 @@ def _run_with_yt_dlp_module(url: str, outdir: str, quality: str = "192"):
     ydl_opts = {
         'format': 'bestaudio/best',
         'outtmpl': outtmpl,
-        'noplaylist': False,  # 플레이리스트면 여러개 받을 수 있음
+        'noplaylist': True,  # 클라이언트가 각 비디오를 개별적으로 요청하므로 단일 비디오만 처리
         'quiet': False,
         'no_warnings': True,
         'retries': 10,  # 재시도 횟수 증가
         'fragment_retries': 10,
         'extractor_retries': 3,
         'continuedl': True,
-        'ignoreerrors': False,  # 에러 시 플레이리스트 계속 진행
+        'ignoreerrors': False,
         'ffmpeg_location': None,  # 필요 시 절대경로 지정
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
@@ -222,13 +222,9 @@ def _run_with_yt_dlp_module(url: str, outdir: str, quality: str = "192"):
 
     with YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
-        # info가 playlist인 경우엔 여러 항목 처리됨
-        # 플레이리스트의 경우 전체 정보를 반환해야 모든 항목이 다운로드됨
-        # 단일 비디오인 경우에만 첫 번째 항목 반환
+        # 플레이리스트 URL이 들어오면 첫 번째 항목만 처리
         if isinstance(info, dict) and "entries" in info and info["entries"]:
-            # 플레이리스트 전체 정보를 반환 (모든 항목 다운로드됨)
-            # 마지막에 다운로드된 항목의 정보를 추출
-            return info["entries"][-1] if len(info["entries"]) > 0 else info
+            info = info["entries"][0]
         return info
 
 
@@ -386,13 +382,13 @@ def download():
         except Exception as fallback_error:
             logging.error(f"최근 파일 찾기 실패: {str(fallback_error)}")
 
-        # 플레이리스트 재개 시도
+        # 재개 시도 (단일 비디오 처리)
         try:
-            logging.info("→ 플레이리스트 재개 시도...")
+            logging.info("→ 재개 시도...")
             with yt_dlp.YoutubeDL({
                 'format': 'bestaudio/best',
                 'outtmpl': os.path.join(DOWNLOAD_DIR, "%(title)s.%(ext)s"),
-                'noplaylist': False,
+                'noplaylist': True,  # 클라이언트가 각 비디오를 개별적으로 요청하므로 단일 비디오만 처리
                 'quiet': False,
                 'no_warnings': True,
                 'retries': 3,

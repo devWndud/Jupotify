@@ -25,9 +25,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:android_intent_plus/android_intent.dart';
 import 'dart:async';
 import 'package:firebase_core/firebase_core.dart';
-import 'services/auth_service.dart';
 import 'firebase_init.dart';
-import 'auth_screens.dart';
 
 // 다국어 지원
 class AppLocalizations {
@@ -569,67 +567,11 @@ class _AuthGateState extends State<_AuthGate> {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder(
-      stream: AuthService().authStateChanges,
-      initialData: AuthService().currentUser,
-      builder: (context, snapshot) {
-        final user = snapshot.data as dynamic;
-        if (user == null) {
-          if (_showSignup) {
-            return SignupScreen(onGoLogin: () => setState(() => _showSignup = false));
-          }
-          return LoginScreen(
-            onLoggedIn: () => setState(() {}),
-            onGoSignup: () => setState(() => _showSignup = true),
-          );
-        }
-        // User exists: verify approval before entering app
-        return FutureBuilder<bool>(
-          future: AuthService().isApproved(user),
-          builder: (context, approvedSnap) {
-            // Avoid flicker: optimistically show app if we already know user exists
-            if (approvedSnap.connectionState != ConnectionState.done && approvedSnap.data != false) {
-              return _RootScaffold(handler: widget.handler);
-            }
-            final approved = approvedSnap.data == true;
-            if (!approved) {
-              return const _WaitingApprovalScreen();
-            }
-            return _RootScaffold(handler: widget.handler);
-          },
-        );
-      },
-    );
+    return _RootScaffold(handler: widget.handler);
   }
 }
 
-class _WaitingApprovalScreen extends StatelessWidget {
-  const _WaitingApprovalScreen();
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF121212),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('승인 대기 중입니다', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              const Text('관리자 승인 후 이용 가능합니다.', style: TextStyle(color: Colors.white70)),
-              const SizedBox(height: 24),
-              ElevatedButton(
-                onPressed: () => AuthService().logout(),
-                child: const Text('로그아웃'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
+ 
 
 
 class _RootScaffold extends StatefulWidget {
@@ -1642,13 +1584,9 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin, Autom
     final prefs = await SharedPreferences.getInstance();
     final savedName = prefs.getString('user_nickname');
     final savedLang = prefs.getString('app_language');
-    // Prefer Firestore username if available
-    final firestoreName = await AuthService().getCurrentUsername();
     if (!mounted) return;
     setState(() {
-      if ((firestoreName ?? '').isNotEmpty) {
-        _nickname = firestoreName!;
-      } else if (savedName != null && savedName.isNotEmpty) {
+      if (savedName != null && savedName.isNotEmpty) {
         _nickname = savedName;
       }
       if (savedLang != null && savedLang.isNotEmpty) _language = savedLang;
@@ -3606,6 +3544,26 @@ class _YouTubeDownloadBarState extends State<_YouTubeDownloadBar> {
         final ok = await _ensureStoragePermission();
         if (!ok) throw 'Storage permission denied';
         final yt = YouTubeDownloader();
+        
+        // Get playlist title first
+        String playlistTitle = 'YouTube Playlist';
+        try {
+          final playlist = await yt.getPlaylist(url);
+          playlistTitle = playlist.title;
+        } catch (e) {
+          print('Error getting playlist title: $e');
+        }
+        
+        // Get playlist videos
+        final videos = await yt.getPlaylistVideos(url);
+        
+        // Create playlist
+        final playlist = await _createPlaylist(playlistTitle);
+        
+        // Show download started notification
+        await NotificationService.showPlaylistStarted(playlistTitle, videos.length);
+        
+        // Download and add to playlist
         final results = await yt.downloadPlaylist(
           url,
           onProgress: (index, total, itemProgress, title) {
@@ -3616,19 +3574,39 @@ class _YouTubeDownloadBarState extends State<_YouTubeDownloadBar> {
             });
           },
         );
+        
+        // Add downloaded results to playlist
+        int completed = 0;
+        for (int i = 0; i < results.length && i < videos.length; i++) {
+          try {
+            await _addToPlaylist(playlist, videos[i], results[i]);
+            completed++;
+            // Show playlist progress
+            await NotificationService.showPlaylistProgress(playlistTitle, completed, videos.length, videos[i].title);
+          } catch (e) {
+            print('Error adding ${videos[i].title} to playlist: $e');
+          }
+        }
+        
+        // Show completion notification
+        await NotificationService.showPlaylistCompleted(playlistTitle, completed);
+        
         yt.dispose();
 
         if (!mounted) return;
-        // Imported tracks - silently continue
+        setState(() {
+          _status = 'Successfully downloaded $completed videos to playlist "$playlistTitle"';
+        });
       } catch (e) {
         if (!mounted) return;
-        // Playlist import failed - silently continue
+        setState(() {
+          _status = 'Error downloading playlist: $e';
+        });
       } finally {
         if (!mounted) return;
         setState(() {
           _busy = false;
           _progress = null;
-          _status = null;
         });
       }
     }
@@ -3674,16 +3652,26 @@ class _YouTubeDownloadBarState extends State<_YouTubeDownloadBar> {
     // Simple background playlist download using Future.microtask
     Future.microtask(() async {
       String? playlistName;
+      Map<String, dynamic>? playlist;
       try {
         final yt = YouTubeDownloader();
         
         // Get playlist info first
         final videos = await yt.getPlaylistVideos(url);
-        playlistName = 'Playlist'; // Default name
+        playlistName = 'YouTube Playlist'; // Default name
+        
+        // Try to get actual playlist title
+        try {
+          final playlistInfo = await yt.getPlaylist(url);
+          playlistName = playlistInfo.title;
+        } catch (e) {
+          print('Error getting playlist title: $e');
+        }
+        
         final totalTracks = videos.length;
         
-        // Use default playlist name
-        playlistName = 'YouTube Playlist';
+        // Create playlist
+        playlist = await _createPlaylist(playlistName);
         
         // Show playlist download started notification
         await NotificationService.showPlaylistStarted(playlistName, totalTracks);
@@ -3696,14 +3684,28 @@ class _YouTubeDownloadBarState extends State<_YouTubeDownloadBar> {
           },
           remoteServerBaseUrl: 'https://infotherapy.kro.kr',
         );
+        
+        // Add downloaded results to playlist
+        int completed = 0;
+        for (int i = 0; i < results.length && i < videos.length; i++) {
+          try {
+            await _addToPlaylist(playlist!, videos[i], results[i]);
+            completed++;
+            // Show playlist progress
+            await NotificationService.showPlaylistProgress(playlistName!, completed, videos.length, videos[i].title);
+          } catch (e) {
+            print('Error adding ${videos[i].title} to playlist: $e');
+          }
+        }
+        
         yt.dispose();
         
         // Show completion notification
-        await NotificationService.showPlaylistCompleted(playlistName, results.length);
+        await NotificationService.showPlaylistCompleted(playlistName, completed);
         
         // Save result to SharedPreferences
         final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('last_download', '${results.length} tracks from $playlistName');
+        await prefs.setString('last_download', '$completed tracks from $playlistName');
         await prefs.setString('download_status', 'completed');
       } catch (e) {
         // Show failure notification
@@ -8433,26 +8435,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
               const SizedBox(height: 32),
-              // Admin approval screen shortcut (admins only)
-              FutureBuilder<bool>(
-                future: AuthService().isCurrentUserAdmin(),
-                builder: (context, snap) {
-                  if (snap.connectionState != ConnectionState.done) {
-                    return const SizedBox.shrink();
-                  }
-                  if (snap.data != true) {
-                    return const SizedBox.shrink();
-                  }
-                  return ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AdminScreen()));
-                    },
-                    icon: const Icon(Icons.admin_panel_settings),
-                    label: const Text('관리자 승인 화면 열기'),
-                  );
-                },
-              ),
-              const SizedBox(height: 16),
+              
               
               // Nickname Setting
               Text(
