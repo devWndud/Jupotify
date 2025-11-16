@@ -47,16 +47,40 @@ class RemoteExtractor {
   }
 
   Future<RemoteExtractResult?> download(String url) async {
+    // Validate server URL
+    if (serverBaseUrl.isEmpty) {
+      throw ArgumentError('serverBaseUrl cannot be empty');
+    }
+    
+    // Parse endpoint URI
     final endpoint = Uri.parse('$serverBaseUrl/download');
+    if (!endpoint.hasScheme || !endpoint.hasAuthority) {
+      throw FormatException('Invalid server URL: $serverBaseUrl');
+    }
+    
+    // Send POST request to server
     final res = await http.post(
       endpoint,
-      headers: {'Content-Type': 'application/json'},
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'Jupotify/1.0',
+      },
       body: jsonEncode({'url': url}),
-    );
-    if (res.statusCode != 200) return null;
+    ).timeout(const Duration(seconds: 30));
+    
+    // Check response status
+    if (res.statusCode != 200) {
+      return null;
+    }
+    
+    // Parse response
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     final fileUrl = data['file_url'] as String?;
-    if (fileUrl == null || fileUrl.isEmpty) return null;
+    
+    if (fileUrl == null || fileUrl.isEmpty) {
+      return null;
+    }
+    
     return RemoteExtractResult(
       audioUrl: '',
       fileUrl: fileUrl,

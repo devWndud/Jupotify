@@ -73,13 +73,22 @@ class YouTubeDownloader {
     Duration? duration;
     String? thumbnailUrl;
 
+    // Try server-side download first if server URL is provided
     if (remoteServerBaseUrl != null && remoteServerBaseUrl.isNotEmpty) {
       try {
+        // Validate server URL format
+        final serverUri = Uri.parse(remoteServerBaseUrl);
+        if (!serverUri.hasScheme || !serverUri.hasAuthority) {
+          throw FormatException('Invalid server URL format: $remoteServerBaseUrl');
+        }
+        
         final remote = RemoteExtractor(remoteServerBaseUrl);
-        // Prefer server-side download for speed and stability
-        final r = await remote.download(url);
-        if (r != null) {
-          // We'll download from server-hosted file URL
+        final r = await remote.download(url).timeout(
+          const Duration(seconds: 60),
+        );
+        
+        if (r != null && r.fileUrl != null && r.fileUrl!.isNotEmpty) {
+          // Server download successful - use server-provided file
           directAudioUrl = r.fileUrl;
           extHint = r.extensionHint;
           title = r.title;
@@ -88,7 +97,8 @@ class YouTubeDownloader {
           thumbnailUrl = r.thumbnailUrl;
         }
       } catch (e) {
-        print('[YT] Remote extractor failed: $e');
+        // Server download failed - fallback to local extraction
+        // Continue to local extraction below
       }
     }
 
@@ -307,8 +317,17 @@ class YouTubeDownloader {
   }) async {
     final videos = await getPlaylistVideos(url, max: max);
     final results = <YouTubeDownloadResult>[];
+    
+    // Ensure remoteServerBaseUrl is provided
+    if (remoteServerBaseUrl == null || remoteServerBaseUrl.isEmpty) {
+      print('[YT] WARNING: remoteServerBaseUrl is not provided for playlist download');
+    }
+    
     for (var i = 0; i < videos.length; i++) {
       final v = videos[i];
+      
+      // Get video URL - use v.url if available, otherwise construct from id
+      final videoUrl = v.url.isNotEmpty ? v.url : 'https://www.youtube.com/watch?v=${v.id.value}';
       
       // Retry logic for each playlist item
       bool success = false;
@@ -316,9 +335,9 @@ class YouTubeDownloader {
         try {
           if (onProgress != null) onProgress(i + 1, videos.length, 0.0, '${v.title} (시도 ${attempt + 1}/3)');
           
-          // Per-item timeout so the whole playlist doesn't hang
+          // Download each video with server support
           final r = await downloadAudio(
-            v.url,
+            videoUrl,
             onProgress: (p) {
               if (onProgress != null) onProgress(i + 1, videos.length, p, v.title);
             },
@@ -377,6 +396,15 @@ class YouTubeDownloader {
 
   String _sanitizeFileName(String input) {
     return input.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+  }
+
+  /// Get video URL from Video object or construct from ID
+  String _getVideoUrl(Video video) {
+    if (video.url.isNotEmpty) {
+      return video.url;
+    }
+    // Construct URL from video ID
+    return 'https://www.youtube.com/watch?v=${video.id.value}';
   }
 
   Future<Directory> _resolveMusicDir() async {

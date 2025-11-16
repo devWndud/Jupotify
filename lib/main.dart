@@ -1274,8 +1274,10 @@ class _TabletYouTubeDownloadDialogState extends State<_TabletYouTubeDownloadDial
           return;
         }
 
+        // Ensure we have a valid video URL
+        final videoUrl = video.url.isNotEmpty ? video.url : 'https://www.youtube.com/watch?v=${video.id.value}';
         final result = await downloader.downloadAudio(
-          video.url,
+          videoUrl,
           remoteServerBaseUrl: 'https://infotherapy.kro.kr',
         );
 
@@ -2778,7 +2780,9 @@ class _SearchTabState extends State<_SearchTab> with AutomaticKeepAliveClientMix
     if (!ok) return;
     setState(() => _progress[v.id.value] = 0);
     try {
-      final result = await _downloader.downloadAudio(v.url, remoteServerBaseUrl: 'http://222.231.24.5:8080', onProgress: (p) {
+      // Ensure we have a valid video URL
+      final videoUrl = v.url.isNotEmpty ? v.url : 'https://www.youtube.com/watch?v=${v.id.value}';
+      final result = await _downloader.downloadAudio(videoUrl, remoteServerBaseUrl: 'https://infotherapy.kro.kr', onProgress: (p) {
         setState(() => _progress[v.id.value] = p);
       });
       // Add to queue
@@ -3256,7 +3260,9 @@ class _YouTubeDownloadBarState extends State<_YouTubeDownloadBar> {
         final ok = await _ensureStoragePermission();
         if (!ok) throw 'Storage permission denied';
         final yt = YouTubeDownloader();
-        final result = await yt.downloadAudio(url, remoteServerBaseUrl: 'http://222.231.24.5:8080', onProgress: (p) {
+        // Ensure URL is valid (might be video ID or full URL)
+        final videoUrl = url.startsWith('http') ? url : 'https://www.youtube.com/watch?v=$url';
+        final result = await yt.downloadAudio(videoUrl, remoteServerBaseUrl: 'https://infotherapy.kro.kr', onProgress: (p) {
           setState(() => _progress = p);
         });
         yt.dispose();
@@ -3395,7 +3401,9 @@ class _YouTubeDownloadBarState extends State<_YouTubeDownloadBar> {
         _status = 'Downloading: ${video.title} (${completed + 1}/${videos.length})';
       });
       
-      final downloadResult = await yt.downloadAudio(video.url, remoteServerBaseUrl: 'http://222.231.24.5:8080', onProgress: (progress) {
+      // Ensure we have a valid video URL
+      final videoUrl = video.url.isNotEmpty ? video.url : 'https://www.youtube.com/watch?v=${video.id.value}';
+      final downloadResult = await yt.downloadAudio(videoUrl, remoteServerBaseUrl: 'https://infotherapy.kro.kr', onProgress: (progress) {
         setState(() {
           _progress = progress;
         });
@@ -3545,17 +3553,21 @@ class _YouTubeDownloadBarState extends State<_YouTubeDownloadBar> {
         if (!ok) throw 'Storage permission denied';
         final yt = YouTubeDownloader();
         
-        // Get playlist title first
+        // Get playlist title and videos
         String playlistTitle = 'YouTube Playlist';
+        List<Video> videos = [];
         try {
           final playlist = await yt.getPlaylist(url);
           playlistTitle = playlist.title;
+          videos = await yt.getPlaylistVideos(url);
         } catch (e) {
-          print('Error getting playlist title: $e');
+          print('Error getting playlist info: $e');
+          throw 'Failed to load playlist: $e';
         }
         
-        // Get playlist videos
-        final videos = await yt.getPlaylistVideos(url);
+        if (videos.isEmpty) {
+          throw 'Playlist is empty';
+        }
         
         // Create playlist
         final playlist = await _createPlaylist(playlistTitle);
@@ -3563,28 +3575,46 @@ class _YouTubeDownloadBarState extends State<_YouTubeDownloadBar> {
         // Show download started notification
         await NotificationService.showPlaylistStarted(playlistTitle, videos.length);
         
-        // Download and add to playlist
-        final results = await yt.downloadPlaylist(
-          url,
-          onProgress: (index, total, itemProgress, title) {
+        // Download each video one by one (like search download)
+        int completed = 0;
+        for (int i = 0; i < videos.length; i++) {
+          final video = videos[i];
+          if (!mounted) return;
+          
+          setState(() {
+            _status = 'Downloading (${i + 1}/${videos.length}): ${video.title}';
+            _progress = i / videos.length;
+          });
+          
+          try {
+            // Download video (same as search download) - ensure valid URL
+            final videoUrl = video.url.isNotEmpty ? video.url : 'https://www.youtube.com/watch?v=${video.id.value}';
+            final downloadResult = await yt.downloadAudio(
+              videoUrl,
+              remoteServerBaseUrl: 'https://infotherapy.kro.kr',
+              onProgress: (progress) {
+                if (!mounted) return;
+                setState(() {
+                  _progress = (i + progress) / videos.length;
+                });
+              },
+            );
+            
+            // Add to playlist after download
+            await _addToPlaylist(playlist, video, downloadResult);
+            completed++;
+            
+            // Show playlist progress
+            await NotificationService.showPlaylistProgress(playlistTitle, completed, videos.length, video.title);
+            
             if (!mounted) return;
             setState(() {
-              _progress = (index - 1 + itemProgress) / total;
-              _status = 'Downloading ($index/$total): $title';
+              _progress = (i + 1) / videos.length;
+              _status = 'Downloaded ${completed}/${videos.length} to "$playlistTitle"';
             });
-          },
-        );
-        
-        // Add downloaded results to playlist
-        int completed = 0;
-        for (int i = 0; i < results.length && i < videos.length; i++) {
-          try {
-            await _addToPlaylist(playlist, videos[i], results[i]);
-            completed++;
-            // Show playlist progress
-            await NotificationService.showPlaylistProgress(playlistTitle, completed, videos.length, videos[i].title);
           } catch (e) {
-            print('Error adding ${videos[i].title} to playlist: $e');
+            print('Error downloading ${video.title}: $e');
+            // Continue with next video even if one fails
           }
         }
         
@@ -3595,7 +3625,7 @@ class _YouTubeDownloadBarState extends State<_YouTubeDownloadBar> {
 
         if (!mounted) return;
         setState(() {
-          _status = 'Successfully downloaded $completed videos to playlist "$playlistTitle"';
+          _status = 'Successfully downloaded $completed/${videos.length} videos to playlist "$playlistTitle"';
         });
       } catch (e) {
         if (!mounted) return;
@@ -3651,21 +3681,24 @@ class _YouTubeDownloadBarState extends State<_YouTubeDownloadBar> {
   Future<void> _downloadPlaylistInBackground(String url) async {
     // Simple background playlist download using Future.microtask
     Future.microtask(() async {
-      String? playlistName;
+      String playlistName = 'YouTube Playlist'; // Default name
       Map<String, dynamic>? playlist;
       try {
         final yt = YouTubeDownloader();
         
         // Get playlist info first
-        final videos = await yt.getPlaylistVideos(url);
-        playlistName = 'YouTube Playlist'; // Default name
-        
-        // Try to get actual playlist title
+        List<Video> videos = [];
         try {
           final playlistInfo = await yt.getPlaylist(url);
           playlistName = playlistInfo.title;
+          videos = await yt.getPlaylistVideos(url);
         } catch (e) {
-          print('Error getting playlist title: $e');
+          print('Error getting playlist info: $e');
+          throw 'Failed to load playlist: $e';
+        }
+        
+        if (videos.isEmpty) {
+          throw 'Playlist is empty';
         }
         
         final totalTracks = videos.length;
@@ -3676,25 +3709,32 @@ class _YouTubeDownloadBarState extends State<_YouTubeDownloadBar> {
         // Show playlist download started notification
         await NotificationService.showPlaylistStarted(playlistName, totalTracks);
         
-        final results = await yt.downloadPlaylist(
-          url,
-          onProgress: (index, total, itemProgress, title) async {
-            // Update progress notification
-            await NotificationService.showPlaylistProgress(playlistName!, index, total, title);
-          },
-          remoteServerBaseUrl: 'https://infotherapy.kro.kr',
-        );
-        
-        // Add downloaded results to playlist
+        // Download each video one by one (like search download)
         int completed = 0;
-        for (int i = 0; i < results.length && i < videos.length; i++) {
+        for (int i = 0; i < videos.length; i++) {
+          final video = videos[i];
+          
           try {
-            await _addToPlaylist(playlist!, videos[i], results[i]);
+            // Download video (same as search download) - ensure valid URL
+            final videoUrl = video.url.isNotEmpty ? video.url : 'https://www.youtube.com/watch?v=${video.id.value}';
+            final downloadResult = await yt.downloadAudio(
+              videoUrl,
+              remoteServerBaseUrl: 'https://infotherapy.kro.kr',
+            );
+            
+            // Add to playlist after download
+            await _addToPlaylist(playlist!, video, downloadResult);
             completed++;
+            
             // Show playlist progress
-            await NotificationService.showPlaylistProgress(playlistName!, completed, videos.length, videos[i].title);
+            await NotificationService.showPlaylistProgress(playlistName, completed, videos.length, video.title);
+            
+            // Update SharedPreferences
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setString('download_progress', 'Downloaded $completed/${videos.length} to "$playlistName"');
           } catch (e) {
-            print('Error adding ${videos[i].title} to playlist: $e');
+            print('Error downloading ${video.title}: $e');
+            // Continue with next video even if one fails
           }
         }
         
@@ -3709,7 +3749,7 @@ class _YouTubeDownloadBarState extends State<_YouTubeDownloadBar> {
         await prefs.setString('download_status', 'completed');
       } catch (e) {
         // Show failure notification
-        await NotificationService.showPlaylistFailed(playlistName ?? 'Playlist', e.toString());
+        await NotificationService.showPlaylistFailed(playlistName, e.toString());
         
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('download_status', 'failed: $e');

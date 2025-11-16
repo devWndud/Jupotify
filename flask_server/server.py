@@ -43,6 +43,9 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DOWNLOAD_DIR = os.path.join(BASE_DIR, 'downloads')
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
+# Server base URL - can be overridden by environment variable
+SERVER_BASE_URL = os.environ.get('SERVER_BASE_URL', 'https://infotherapy.kro.kr')
+
 # 보안 미들웨어
 @app.before_request
 def security_check():
@@ -317,8 +320,8 @@ def download():
             logging.error(f"찾는 제목: {sanitized_title}")
             return jsonify({"error": "file not found after download"}), 500
 
-        # Build public URL
-        base_url = request.host_url.rstrip('/')
+        # Build public URL - use configured base URL or request host
+        base_url = SERVER_BASE_URL if SERVER_BASE_URL else request.host_url.rstrip('/')
         file_url = f"{base_url}/files/{filename}"
 
         logging.info(f"다운로드 완료 (모듈 방식): {filename}")
@@ -366,7 +369,7 @@ def download():
                         except:
                             pass
                     
-                    base_url = request.host_url.rstrip('/')
+                    base_url = SERVER_BASE_URL if SERVER_BASE_URL else request.host_url.rstrip('/')
                     file_url = f"{base_url}/files/{latest_file}"
                     
                     logging.info(f"최근 파일로 응답: {latest_file}")
@@ -427,7 +430,7 @@ def download():
                 if not filename:
                     raise Exception("파일을 찾을 수 없습니다")
 
-                base_url = request.host_url.rstrip('/')
+                base_url = SERVER_BASE_URL if SERVER_BASE_URL else request.host_url.rstrip('/')
                 file_url = f"{base_url}/files/{filename}"
 
                 logging.info(f"다운로드 완료 (플레이리스트 재개): {filename}")
@@ -471,7 +474,7 @@ def download():
             if not filename:
                 return jsonify({"error": "file not found after download"}), 500
 
-            base_url = request.host_url.rstrip('/')
+            base_url = SERVER_BASE_URL if SERVER_BASE_URL else request.host_url.rstrip('/')
             file_url = f"{base_url}/files/{filename}"
 
             logging.info(f"다운로드 완료 (실행파일 방식): {filename}")
@@ -525,7 +528,7 @@ def download():
                     if not filename:
                         return jsonify({"error": "file not found after download"}), 500
 
-                    base_url = request.host_url.rstrip('/')
+                    base_url = SERVER_BASE_URL if SERVER_BASE_URL else request.host_url.rstrip('/')
                     file_url = f"{base_url}/files/{filename}"
 
                     logging.info(f"다운로드 완료 (기존 방식): {filename}")
